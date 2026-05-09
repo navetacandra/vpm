@@ -184,6 +184,66 @@ wrapcommand() {
   exit "$ret"
 }
 
+download_package_cache() {
+  local cache="$1/$2"
+  local pkg="$2"
+
+  mkdir -p "$cache"
+  echo "Downloading $pkg..."
+  if ! xbps-install -c "$cache" -y -D "$pkg" > /dev/null 2>&1; then
+    echo "Failed install $pkg"
+    rm -rf "$cache"
+  fi
+}
+
+install_package_cache() {
+  local cache="$1/$2"
+  local pkg="$2"
+
+  if [ -d "$cache" ]; then
+    echo "Installing $pkg"
+    if xbps-install -c "$cache" -y "$pkg" > /dev/null 2>&1; then
+      rm -rf "$cache"
+    fi
+  else
+    echo "Skip install $pkg"
+  fi
+}
+
+install_parallel() {
+  local cwd=$(dirname "${BASH_SOURCE[1]}")
+  [ -d "$cwd/.cache" ] || mkdir -p "$cwd/.cache"
+
+  echo
+  xbps-install -n "$@"
+  read -rp "Continue? [y/N] " ans
+
+  case "$ans" in
+    y|Y|yes|YES)
+      local pids=()
+      echo "===== Download ====="
+      for pkg in $@; do
+        download_package_cache "$cwd/.cache" "$pkg" &
+        pids+=($!)
+      done
+
+      for pid in "${pids[@]}"; do
+        wait "$pid"
+      done
+
+      echo "===== Install ====="
+      for pkg in $@; do
+        install_package_cache "$cwd/.cache" "$pkg"
+        sleep 0.2
+      done
+      ;;
+    *)
+      echo "Cancelled"
+      return 1
+      ;;
+  esac
+}
+
 usage () {
   echo
   version
@@ -432,6 +492,17 @@ case "$cmd" in
 
     msg -n "Installing packages: $* "
     wrapcommand xbps-install -S "$@"
+  ;;
+
+  parallel-install|pi)
+    rootcheck
+    if (($# < 1)); then
+      rmsg 255 "ERROR: install: argument missing, try --help."
+      exit 1
+    fi
+
+    msg -n "Installing packages: $* "
+    install_parallel $@
   ;;
 
   yesinstall)
