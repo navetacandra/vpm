@@ -215,7 +215,31 @@ install_parallel() {
   [ -d "$cwd/.cache" ] || mkdir -p "$cwd/.cache"
 
   echo
-  xbps-install -n "$@"
+  deps=()
+  for pkg in $@; do
+    while read -r line; do
+      deps+=("$line")
+    done < <(xbps-query -Rx "$pkg" | grep -o '^[^>=]*')
+  done
+
+  mapfile -t unique_deps < <(
+      printf '%s\n' "${deps[@]}" | sort -u
+  )
+
+  missing_deps=($@)
+  for dep in "${deps[@]}"; do
+    if ! xbps-query -p pkgver "$dep" >/dev/null 2>&1; then
+      missing_deps+=("$dep")
+    fi
+  done
+
+  # Preview
+  for dep in "${missing_deps[@]}"; do
+    size=$(xbps-query -SR "$dep" 2>/dev/null | awk -F': ' '/filename-size/ {print $2}')
+    size=${size:-0}
+    printf "$dep\t$size\n"
+  done
+
   read -rp "Continue? [y/N] " ans
 
   case "$ans" in
